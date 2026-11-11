@@ -21,7 +21,8 @@ http.createServer(async(req,res)=>{
  if(req.method==='GET'&&path==='/admin')return session(req)?send(res,200,dashboard):send(res,302,'','text/plain',{Location:'/login'});
  if(req.method==='GET'&&path==='/login')return session(req)?send(res,302,'','text/plain',{Location:'/admin'}):send(res,200,req.url?.includes('error=1')?Buffer.from(login.toString().replace('id="login-error" role="alert" style="display:none;','id="login-error" role="alert" style="display:block;')):login);
  if(req.method==='POST'&&(path==='/login'||path==='/logout')){
-  if(req.headers.origin!=='https://edu.senosl.com')return send(res,403,'Forbidden','text/plain');
+  const origin=req.headers.origin;const referer=req.headers.referer;const allowed='https://edu.senosl.com';
+  if(origin ? origin!==allowed : (referer ? !referer.startsWith(allowed+'/') : true))return send(res,403,'Forbidden','text/plain');
   if(path==='/logout'){const token=session(req);if(token)sessions.delete(token);return send(res,303,'','text/plain',{Location:'/login','Set-Cookie':cookie('',0)});}
   const ip=req.socket.remoteAddress||'unknown',now=Date.now(),state=attempts.get(ip)||{count:0,until:0};
   if(state.until>now)return send(res,429,'Too many attempts','text/plain');
