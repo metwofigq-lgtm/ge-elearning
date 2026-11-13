@@ -1,3 +1,4 @@
+import { layout } from './layout.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -15,9 +16,7 @@ function escape(value) {
 }
 
 function page(content) {
-  return `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Estudio de cursos · GE E-Learning</title><style>
-  *{box-sizing:border-box}body{margin:0;background:#f3f6fb;color:#183454;font:16px/1.5 system-ui,sans-serif}header{background:#112f5c;padding:16px 5%;color:white;font-weight:700}main{max-width:780px;margin:auto;padding:24px 16px}h1{line-height:1.2}a{color:#204f86}section,form{background:white;border:1px solid #d7e2ed;border-radius:12px;padding:20px;margin:16px 0}label{display:block;font-weight:650;margin:18px 0 5px}input,textarea{font:inherit;width:100%;padding:10px;border:1px solid #8395ab;border-radius:6px}textarea{min-height:200px}button,.action{display:inline-block;background:#174778;color:white;border:0;border-radius:7px;padding:10px 16px;font:inherit;text-decoration:none;margin-top:12px}small{color:#52657b}li{padding:8px 0;overflow-wrap:anywhere}</style>
-  <header>GE E-Learning</header><main><a href="/admin">Panel de administración</a> · <a href="/admin/cursos">Cursos</a>${content}</main></html>`;
+  return layout('Estudio de cursos',content,'/admin/cursos',true);
 }
 
 function editor(course, message='') {

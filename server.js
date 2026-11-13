@@ -1,3 +1,4 @@
+import { layout, home, workspace } from './layout.js';
 import { courses } from './courses.js';
 import http from 'node:http';
 import {readFileSync} from 'node:fs';
@@ -7,9 +8,10 @@ const port=Number(process.env.PORT||4187),host='127.0.0.1';
 const landing=readFileSync(new URL('./web/index.html',import.meta.url));
 const login=readFileSync(new URL('./web/login.html',import.meta.url));
 const dashboard=readFileSync(new URL('./web/admin.html',import.meta.url));
+const stylesheet=readFileSync(new URL('./web/estilos.css',import.meta.url));
 const credentialFile=process.env.GE_ADMIN_CREDENTIAL_FILE||join(process.env.HOME||'/nonexistent','.config/ge-elearning/admin.json');
 const sessions=new Map(),attempts=new Map(),duration=8*60*60*1000;
-const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'same-origin','Content-Security-Policy':"default-src 'self'; style-src 'unsafe-inline'; script-src 'none'; form-action 'self'; frame-ancestors 'none'"};
+const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'same-origin','Content-Security-Policy':"default-src 'self'; style-src 'self'; script-src 'none'; form-action 'self'; frame-ancestors 'none'"};
 function send(res,status,body,type='text/html; charset=utf-8',extra={}){res.writeHead(status,{...headers,'Content-Type':type,...extra});res.end(body);}
 function cred(){try{return JSON.parse(readFileSync(credentialFile,'utf8'));}catch{return null;}}
 function verify(pass,record){try{const a=scryptSync(pass,Buffer.from(record.salt,'hex'),64),b=Buffer.from(record.hash,'hex');return a.length===b.length&&timingSafeEqual(a,b);}catch{return false;}}
@@ -21,15 +23,20 @@ function trustedForm(req){
 }
 http.createServer(async(req,res)=>{
  const path=new URL(req.url||'/', 'http://localhost').pathname;
+ if(req.method==='GET'&&path==='/estilos.css')return send(res,200,stylesheet,'text/css; charset=utf-8');
+ if(req.method==='GET'&&path.startsWith('/espacios/')){
+  const view=workspace(path);
+  return view?send(res,200,view):send(res,404,layout('Página no encontrada','<h1>Página no encontrada</h1>',''));
+ }
  if(path==='/admin/cursos'||path.startsWith('/admin/cursos/')){
   if(!session(req))return send(res,302,'','text/plain',{Location:'/login'});
   if(req.method==='POST'&&!trustedForm(req))return send(res,403,'Forbidden','text/plain');
   try{return await courses(req,res,path,send);}catch(error){console.error('Course request failed',error.code);return send(res,500,'No se pudo abrir el curso.');}
  }
  if(req.method==='GET'&&path==='/health')return send(res,200,JSON.stringify({status:'ok',service:'ge-elearning',mode:'staging'}),'application/json');
- if(req.method==='GET'&&path==='/')return send(res,200,landing);
- if(req.method==='GET'&&path==='/admin')return session(req)?send(res,200,dashboard):send(res,302,'','text/plain',{Location:'/login'});
- if(req.method==='GET'&&path==='/login')return session(req)?send(res,302,'','text/plain',{Location:'/admin'}):send(res,200,req.url?.includes('error=1')?Buffer.from(login.toString().replace('id="login-error" role="alert" style="display:none;','id="login-error" role="alert" style="display:block;')):login);
+ if(req.method==='GET'&&path==='/')return send(res,200,home(landing.toString()));
+ if(req.method==='GET'&&path==='/admin')return session(req)?send(res,200,layout('Panel de administración',dashboard,'/admin',true)):send(res,302,'','text/plain',{Location:'/login'});
+ if(req.method==='GET'&&path==='/login')return session(req)?send(res,302,'','text/plain',{Location:'/admin'}):send(res,200,layout('Acceso administrativo',req.url?.includes('error=1')?login.toString().replace('role="alert" hidden','role="alert"'):login,'/login'));
  if(req.method==='POST'&&(path==='/login'||path==='/logout')){
   if(!trustedForm(req))return send(res,403,'Forbidden','text/plain');
   if(path==='/logout'){const token=session(req);if(token)sessions.delete(token);return send(res,303,'','text/plain',{Location:'/login','Set-Cookie':cookie('',0)});}
