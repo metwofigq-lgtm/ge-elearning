@@ -1,3 +1,4 @@
+import { accounts } from './accounts.js';
 import { student } from './student.js';
 import { layout, home, workspace } from './layout.js';
 import { courses } from './courses.js';
@@ -25,6 +26,11 @@ function trustedForm(req){
 http.createServer(async(req,res)=>{
  const path=new URL(req.url||'/', 'http://localhost').pathname;
  if(req.method==='GET'&&path==='/estilos.css')return send(res,200,stylesheet,'text/css; charset=utf-8');
+ if(path==='/cuenta'||path.startsWith('/cuenta/')||path==='/admin/cuentas'){
+  if(path==='/admin/cuentas'&&!session(req))return send(res,302,'','text/plain',{Location:'/login'});
+  if(req.method==='POST'&&!trustedForm(req))return send(res,403,'Solicitud no permitida','text/plain');
+  try{return await accounts(req,res,path,send);}catch(error){console.error('Account request failed',error.code);return send(res,500,'No se pudo abrir la cuenta.');}
+ }
  if(path==='/espacios/estudiante'||path.startsWith('/espacios/estudiante/')){
   if(req.method==='POST'&&!trustedForm(req))return send(res,403,'Solicitud no permitida','text/plain');
   try{return await student(req,res,path,send);}catch(error){console.error('Student request failed',error.code);return send(res,500,'No se pudo abrir el espacio.');}

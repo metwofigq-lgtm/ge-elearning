@@ -10,7 +10,7 @@ const base='/espacios/estudiante';
 const catalog=base+'/catalogo';
 const directory=process.env.GE_COURSE_DIR || join(process.env.HOME,'.local/share/ge-elearning');
 mkdirSync(directory,{recursive:true,mode:0o700});
-const db=new DatabaseSync(join(directory,'students.sqlite'));
+export const db=new DatabaseSync(join(directory,'students.sqlite'));
 db.exec(`PRAGMA foreign_keys=ON;
  CREATE TABLE IF NOT EXISTS students(id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL,salt TEXT NOT NULL,hash TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, student INTEGER NOT NULL REFERENCES students, expires INTEGER NOT NULL);
@@ -36,14 +36,19 @@ const lessonUrl=(c,l)=>courseUrl(c)+'/lecciones/'+l.id;
 const button=(url,label)=>`<form method="post" action="${url}"><button>${label}</button></form>`;
 const attempts=new Map();
 
-export async function student(req,res,path,send){
- const url=new URL(req.url,'https://edu.senosl.com');
+export function identity(req){
  const token=(req.headers.cookie||'').split(';').map(c=>c.trim()).find(c=>c.startsWith('ge_student='))?.slice(11);
  const account=token && db.prepare('SELECT student FROM sessions WHERE token=? AND expires>?').get(digest(token),Date.now());
  const id=account?.student;
+ return {token,id};
+}
+
+export async function student(req,res,path,send){
+ const url=new URL(req.url,'https://edu.senosl.com');
+ const {token,id}=identity(req);
  const current=tabs.find(([u])=>u===path)?.[0] || (path.startsWith(catalog+'/')?catalog:base);
  const render=(title,html,status=200)=>send(res,status,layout(title,'<h1>'+title+'</h1>'+html,base,false,
-   nav(tabs,current,'Estudiante')+(id?button(base+'/salir','Cerrar sesión de estudiante'):`<a href="${base}/acceso">Acceso de estudiante</a>`)));
+   nav(tabs,current,'Estudiante')+(id?'<a href="/cuenta">Mi perfil y espacios</a>'+button(base+'/salir','Cerrar sesión de estudiante'):`<a href="${base}/acceso">Acceso de estudiante</a>`)));
  const redirect=(target,extra={})=>send(res,303,'','text/plain',{Location:target,...extra});
  const missing=()=>render('Página no encontrada',`<a href="${catalog}">Volver al catálogo</a>`,404);
  const get=req.method==='GET';
@@ -56,17 +61,18 @@ export async function student(req,res,path,send){
  }
  const next=fields.get('curso')||url.searchParams.get('curso');
  const selected=published.find(c=>c.id===next);
- const afterLogin=selected?courseUrl(selected):base+'/aprendizaje';
+ const profileLogin=(fields.get('destino')||url.searchParams.get('destino'))==='cuenta';
+ const afterLogin=selected?courseUrl(selected):profileLogin?'/cuenta':base+'/aprendizaje';
  function authForm(register,message='',status=200){
   const action=base+(register?'/registro':'/acceso'),other=base+(register?'/acceso':'/registro');
-  return render(register?'Crear cuenta de estudiante':'Acceso de estudiante',`
+  return render(register?'Crear cuenta':'Acceso a tu cuenta',`
    ${message?'<p role="alert">'+message+'</p>':''}
-   <form action="${action}" method="post"><input type="hidden" name="curso" value="${selected?.id||''}">
+   <form action="${action}" method="post"><input type="hidden" name="destino" value="${profileLogin?'cuenta':''}"><input type="hidden" name="curso" value="${selected?.id||''}">
    <label>Usuario<input name="usuario" autocomplete="username" minlength="3" maxlength="40" pattern="[a-zA-Z0-9._\\-]{3,40}" required></label>
    <small>De 3 a 40 letras, números, puntos, guiones o guiones bajos.</small>
    <label>Contraseña<input type="password" name="clave" autocomplete="${register?'new-password':'current-password'}" ${register?'minlength="12"':''} maxlength="128" required></label>
    ${register?'<small>Usa al menos 12 caracteres.</small>':''}<p><button>${register?'Crear cuenta':'Iniciar sesión'}</button></p></form>
-   <a href="${other}${selected?'?curso='+selected.id:''}">${register?'Ya tengo cuenta':'Crear cuenta de estudiante'}</a>`,status);
+   <a href="${other}${selected?'?curso='+selected.id:profileLogin?'?destino=cuenta':''}">${register?'Ya tengo cuenta':'Crear cuenta'}</a>`,status);
  }
  if(path===base+'/registro'||path===base+'/acceso'){
   if(id)return redirect(afterLogin);

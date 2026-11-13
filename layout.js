@@ -19,7 +19,7 @@ export function nav(items, current, label) {
 }
 
 export function layout(title, content, current, admin=false, localNav='') {
-  const links=admin ? [['/admin','Panel'],['/admin/cursos','Cursos'],['/','Inicio público']] :
+  const links=admin ? [['/admin','Panel'],['/admin/cursos','Cursos'],['/admin/cuentas','Cuentas'],['/','Inicio público']] :
     [['/','Inicio'],...spaces.map(s=>['/espacios/'+s.slug,s.name])];
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>${title} · GE E-Learning</title><link rel="stylesheet" href="/estilos.css"></head>
@@ -36,7 +36,7 @@ export function workspace(path) {
     if(!selected)continue;
     const section=space.sections.find(([slug])=>base+'/'+slug===path);
     const content=section ? `<h2>${section[1]}</h2><p>${section[2]}</p>` :
-      `<h2>Secciones</h2><ul>${tabs.slice(1).map(([url,label])=>`<li><a href="${url}">${label}</a></li>`).join('')}</ul>`;
+      `<a class="action" href="/cuenta">Entrar en mi espacio</a><h2>Secciones</h2><ul>${tabs.slice(1).map(([url,label])=>`<li><a href="${url}">${label}</a></li>`).join('')}</ul>`;
     return layout(selected[1]+' · '+space.name,`<section>${content}</section>`,base,false,
       `<h1>Espacio de ${space.name.toLowerCase()}</h1><p>Vista previa pública · Funciones en desarrollo</p>${nav(tabs,path,'Secciones del espacio')}`);
   }
