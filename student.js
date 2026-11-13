@@ -1,3 +1,6 @@
+import { releasedCourses } from './releases.js';
+import { escape } from './courses.js';
+import { serveAsset } from './assets.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,7 +22,7 @@ db.exec(`PRAGMA foreign_keys=ON;
  FOREIGN KEY(student,course) REFERENCES enrollment(student,course));`);
 
 // Only reviewed, publicly released content belongs here. Drafts have separate storage.
-const published=[{
+const pilot=[{
  id:'primeros-pasos-en-soporte',title:'Primeros pasos en soporte técnico',category:'Tecnología',
  description:'Aprende a documentar una incidencia para que otra persona pueda continuar el diagnóstico.',
  lessons:[
@@ -60,6 +63,7 @@ export async function student(req,res,path,send){
   for(const [key,value] of new URLSearchParams(Buffer.concat(chunks).toString()))fields.set(key,value);
  }
  const next=fields.get('curso')||url.searchParams.get('curso');
+ const published=[...pilot,...releasedCourses()];
  const selected=published.find(c=>c.id===next);
  const profileLogin=(fields.get('destino')||url.searchParams.get('destino'))==='cuenta';
  const afterLogin=selected?courseUrl(selected):profileLogin?'/cuenta':base+'/aprendizaje';
@@ -112,10 +116,12 @@ export async function student(req,res,path,send){
  }
  if(get&&(path===base||path===catalog)){
   const q=(url.searchParams.get('q')||'').trim().toLocaleLowerCase('es');
-  const matches=published.filter(c=>(c.title+' '+c.category+' '+c.description).toLocaleLowerCase('es').includes(q));
+  const seen=new Set();
+  const latest=published.filter(c=>{if(!c.series)return true;if(seen.has(c.series))return false;seen.add(c.series);return true;});
+  const matches=latest.filter(c=>(c.title+' '+c.category+' '+c.description).toLocaleLowerCase('es').includes(q));
   return render(path===catalog?'Catálogo de cursos':'Espacio de estudiante',
    (path===catalog?`<form action="${catalog}"><label>Buscar por tema o curso<input type="search" name="q"></label><button>Buscar</button></form>`:'')+
-   (matches.map(c=>`<section><small>${c.category} · Gratuito</small><h2><a href="${courseUrl(c)}">${c.title}</a></h2><p>${c.description}</p><p>${c.lessons.length} lecciones</p></section>`).join('')||`<p>No hay cursos con esa búsqueda. <a href="${catalog}">Ver todos</a></p>`));
+   (matches.map(c=>`<section><small>${c.category} · ${c.price?c.price+' XAF':'Gratuito'}</small><h2><a href="${courseUrl(c)}">${c.title}</a></h2><p>${c.description}</p><p>${c.lessons.length} lecciones</p></section>`).join('')||`<p>No hay cursos con esa búsqueda. <a href="${catalog}">Ver todos</a></p>`));
  }
  if(get&&[base+'/aprendizaje',base+'/progreso'].includes(path)){
   if(!id)return redirect(base+'/acceso');
@@ -125,14 +131,20 @@ export async function student(req,res,path,send){
  const course=published.find(c=>courseUrl(c)===path||path.startsWith(courseUrl(c)+'/'));
  if(!course)return missing();
  const link=courseUrl(course);
+ const latest=course.series?published.find(c=>c.series===course.series):course;
+ const previous=course.series&&id?published.find(c=>c.series===course.series&&enrolled(c)):null;
+ if(latest.id!==course.id&&!enrolled(course))return redirect(courseUrl(latest));
+
  if(get&&path===link){
   const active=enrolled(course);
-  return render(course.title,`<p>${course.description}</p><small>Gratuito · ${course.lessons.length} lecciones</small>
+  return render(course.title,`<p>${course.description}</p><small>${course.price?course.price+' XAF':'Gratuito'} ${course.version?'· Versión '+course.version:''} · ${course.lessons.length} lecciones</small>
    <ol>${course.lessons.map(l=>`<li>${active?'<a href="'+lessonUrl(course,l)+'">'+l.title+'</a>':l.title}</li>`).join('')}</ol>`+
-   (active?progressCard(course):id?button(link+'/matricula','Matricularme gratis'):`<a class="action" href="${base}/acceso?curso=${course.id}">Acceder para matricularme</a>`));
+   (active?progressCard(course):previous?progressCard(previous):course.price?'<p>Compra pendiente de habilitación.</p>':id?button(link+'/matricula','Matricularme gratis'):`<a class="action" href="${base}/acceso?curso=${course.id}">Acceder para matricularme</a>`));
  }
  if(!id)return redirect(base+'/acceso?curso='+course.id);
  if(!get&&path===link+'/matricula'){
+  if(previous)return redirect(courseUrl(previous));
+  if(course.price)return render('Curso de pago','<p>Compra pendiente de habilitación.</p>',403);
   db.prepare('INSERT OR IGNORE INTO enrollment VALUES(?,?)').run(id,course.id);
   return redirect(link);
  }
@@ -140,6 +152,10 @@ export async function student(req,res,path,send){
  const lesson=course.lessons.find(l=>l.id===parts[2]);
  if(parts[1]!=='lecciones'||!lesson)return missing();
  const player=lessonUrl(course,lesson);
+ if(get&&course.series){
+  if(lesson.video&&path===player+'/video.mp4')return serveAsset(req,res,lesson.video);
+  if(lesson.pdf&&path===player+'/documento.pdf')return serveAsset(req,res,lesson.pdf);
+ }
  if(get&&lesson.video&&path===player+'/video.mp4'){
   const range=req.headers.range;
   if(!range)return send(res,200,video,'video/mp4',{'Accept-Ranges':'bytes'});
@@ -156,8 +172,11 @@ export async function student(req,res,path,send){
  if(!get||path!==player)return missing();
  const index=course.lessons.indexOf(lesson);
  return render(lesson.title,`<a href="${link}">${course.title}</a><p>Lección ${index+1} de ${course.lessons.length}</p>
-  ${lesson.video?'<video width="640" height="360" controls playsinline preload="none" aria-label="Resumen visual: equipo, síntoma y hora"><source src="'+player+'/video.mp4" type="video/mp4"></video>':''}
-  <section><p>${lesson.text}</p><h2>Practica</h2><p>${lesson.exercise}</p></section>
+  ${lesson.video?'<video width="640" height="360" controls playsinline preload="none" aria-label="Vídeo de la lección"><source src="'+player+'/video.mp4" type="video/mp4"></video>':''}
+  <section>${lesson.module?'<small>'+lesson.module+'</small>':''}<p class="lesson-text">${lesson.text}</p>${lesson.exercise?'<h2>Practica</h2><p>'+lesson.exercise+'</p>':''}
+  ${lesson.pdf?'<a href="'+player+'/documento.pdf">Descargar PDF</a>':''}
+  ${lesson.quiz?`<form method="get"><fieldset><legend>${escape(lesson.quiz.prompt)}</legend>${lesson.quiz.options.map((v,i)=>`<label><input required type="radio" name="respuesta" value="${i}">${escape(v)}</label>`).join('')}</fieldset><button>Comprobar respuesta</button></form>
+  ${url.searchParams.has('respuesta')?(url.searchParams.get('respuesta')===String(lesson.quiz.correct)?'Respuesta correcta.':'Inténtalo de nuevo.'):''}`:''}</section>
   ${finished(course).has(lesson.id)?'<p>Lección completada</p>':button(player+'/completar','Marcar como completada')}
   <nav aria-label="Lecciones">${index?'<a href="'+lessonUrl(course,course.lessons[index-1])+'">Anterior</a>':''}
   ${index+1<course.lessons.length?'<a href="'+lessonUrl(course,course.lessons[index+1])+'">Siguiente</a>':''}</nav>`);

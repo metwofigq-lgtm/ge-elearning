@@ -3,6 +3,8 @@ import { layout } from './layout.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS profiles(
  user_id INTEGER PRIMARY KEY REFERENCES students, display_name TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS instructor_requests(user_id INTEGER PRIMARY KEY REFERENCES students, detail TEXT NOT NULL,status TEXT NOT NULL,feedback TEXT NOT NULL DEFAULT '');
+ CREATE TABLE IF NOT EXISTS instructor_decisions(id INTEGER PRIMARY KEY,user_id INTEGER,decision TEXT,feedback TEXT,created TEXT DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS instructors(user_id INTEGER PRIMARY KEY REFERENCES students);
  CREATE TABLE IF NOT EXISTS institutions(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL, description TEXT NOT NULL DEFAULT '');
  CREATE TABLE IF NOT EXISTS memberships(
@@ -35,6 +37,19 @@ export async function accounts(req,res,path,send){
  const denied=()=>page('Acceso denegado','<p>Tu cuenta no tiene acceso a esta función.</p>',403);
  if(admin){
   if(post){
+   if(action==='verificar'||action==='denegar'){
+    const uid=fields.get('solicitante'),feedback=fields.get('comentario')||'';
+    if(feedback.length>1200||(action==='denegar'&&!feedback))return page('Escribe un comentario','<a href="/admin/cuentas">Volver</a>',422);
+    db.exec('BEGIN IMMEDIATE');
+    try{
+     const changed=db.prepare("UPDATE instructor_requests SET status=?,feedback=? WHERE user_id=? AND status='pending'").run(action,feedback,uid);
+     if(!changed.changes){db.exec('ROLLBACK');return page('Solicitud ya resuelta','<a href="/admin/cuentas">Volver</a>',409);}
+     if(action==='verificar')db.prepare('INSERT OR IGNORE INTO instructors VALUES(?)').run(uid);
+     db.prepare('INSERT INTO instructor_decisions(user_id,decision,feedback) VALUES(?,?,?)').run(uid,action,feedback);
+     db.exec('COMMIT');
+    }catch(err){db.exec('ROLLBACK');throw err;}
+    return redirect(path);
+   }
    if(action==='institucion'){
     const name=fields.get('nombre')||'';
     if(!name||name.length>100)return page('Nombre no válido','<a href="/admin/cuentas">Volver</a>',422);
@@ -57,7 +72,9 @@ export async function accounts(req,res,path,send){
   const tenants=db.prepare('SELECT * FROM institutions ORDER BY name').all();
   const grants=db.prepare(`SELECT s.username,i.name,m.role FROM memberships m JOIN institutions i ON i.id=m.institution_id JOIN students s ON s.id=m.user_id
    UNION ALL SELECT s.username,'','instructor' FROM instructors r JOIN students s ON s.id=r.user_id ORDER BY 1,2,3`).all();
-  return page('Cuentas y permisos',form('institucion','<label>Nueva institución<input name="nombre" maxlength="100" required></label>','Crear institución')+
+  const requests=db.prepare("SELECT r.*,s.username FROM instructor_requests r JOIN students s ON s.id=r.user_id WHERE status='pending' ORDER BY s.username").all();
+  const validation='<section><h2>Verificación de instructores</h2>'+(requests.length?requests.map(r=>`<form method="post"><h3>${escape(r.username)}</h3><p>${escape(r.detail)}</p><input type="hidden" name="solicitante" value="${r.user_id}"><label>Comentario<input name="comentario" maxlength="1200"></label><button name="accion" value="verificar">Verificar instructor</button> <button name="accion" value="denegar">Denegar solicitud</button></form>`).join(''):'<p>No hay solicitudes pendientes.</p>')+'</section>';
+  return page('Cuentas y permisos',validation+form('institucion','<label>Nueva institución<input name="nombre" maxlength="100" required></label>','Crear institución')+
    `<form method="post"><label>Usuario registrado<input name="usuario" required></label><label>Institución<select name="institucion"><option value="">Sin institución</option>${tenants.map(t=>`<option value="${t.id}">${escape(t.name)}</option>`).join('')}</select></label>
    <label>Rol<select name="rol"><option value="instructor">Instructor independiente</option>${[...roles].map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>
    <button name="accion" value="conceder">Conceder acceso</button> <button name="accion" value="retirar">Retirar acceso</button></form>
@@ -65,6 +82,12 @@ export async function accounts(req,res,path,send){
  }
  if(path==='/cuenta'){
   if(post){
+   if(action==='solicitar'){
+    const detail=fields.get('experiencia')||'';
+    if(!detail||detail.length>2000)return page('Describe tu experiencia','<a href="/cuenta">Volver</a>',422);
+    if(!db.prepare('SELECT 1 FROM instructors WHERE user_id=?').get(id))db.prepare("INSERT INTO instructor_requests(user_id,detail,status) VALUES(?,?,'pending') ON CONFLICT(user_id) DO UPDATE SET detail=excluded.detail,status='pending',feedback='' WHERE instructor_requests.status!='pending'").run(id,detail);
+    return redirect(path);
+   }
    const name=fields.get('nombre')||'';
    if(action!=='perfil'||!name||name.length>100)return page('Perfil no válido','<a href="/cuenta">Volver</a>',422);
    db.prepare('INSERT INTO profiles VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET display_name=excluded.display_name').run(id,name);
@@ -73,7 +96,11 @@ export async function accounts(req,res,path,send){
   const profile=db.prepare('SELECT username,display_name FROM students LEFT JOIN profiles ON user_id=students.id WHERE students.id=?').get(id);
   const spaces=db.prepare('SELECT i.id,i.name,m.role FROM memberships m JOIN institutions i ON i.id=m.institution_id WHERE m.user_id=? ORDER BY i.name,m.role').all(id);
   const instructor=db.prepare('SELECT 1 FROM instructors WHERE user_id=?').get(id);
-  return page('Mi perfil y espacios',form('perfil',`<p>Usuario: ${escape(profile.username)}</p><label>Nombre visible<input name="nombre" value="${escape(profile.display_name||profile.username)}" maxlength="100" required></label>`,'Guardar perfil')+
+  const request=db.prepare('SELECT * FROM instructor_requests WHERE user_id=?').get(id);
+  const application=instructor?'':request?.status==='pending'?'<p>Solicitud de instructor pendiente de verificación.</p>':
+   (request?.feedback?'<p>Respuesta de administración: '+escape(request.feedback)+'</p>':'')+
+   form('solicitar','<label>¿Qué quieres enseñar y qué experiencia tienes?<textarea name="experiencia" maxlength="2000" required></textarea></label>','Solicitar verificación de instructor');
+  return page('Mi perfil y espacios',application+form('perfil',`<p>Usuario: ${escape(profile.username)}</p><label>Nombre visible<input name="nombre" value="${escape(profile.display_name||profile.username)}" maxlength="100" required></label>`,'Guardar perfil')+
    `<section><h2>Mis accesos</h2><ul><li><a href="/espacios/estudiante/aprendizaje">Estudiante</a></li>${instructor?'<li><a href="/cuenta/instructor">Instructor independiente</a></li>':''}
    ${spaces.map(s=>`<li><a href="/cuenta/instituciones/${s.id}">${escape(s.name)}</a> · ${roles.get(s.role)}</li>`).join('')}</ul></section>
    <form action="/espacios/estudiante/salir" method="post"><button>Cerrar sesión</button></form>`);

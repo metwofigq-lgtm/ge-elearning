@@ -1,11 +1,12 @@
+import { recordDecision } from './releases.js';
 import { randomUUID, randomBytes, createHmac } from 'node:crypto';
-import { mkdirSync, openSync, closeSync, writeSync, fstatSync, statSync, unlinkSync, createReadStream } from 'node:fs';
+import { mkdirSync, openSync, closeSync, writeSync, fstatSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { files, serveAsset } from './assets.js';
 import { layout } from './layout.js';
 import { db, escape as e } from './courses.js';
 import { db as users, identity } from './student.js';
 
-const files=join(process.env.GE_COURSE_DIR||join(process.env.HOME,'.local/share/ge-elearning'),'studio-media');
 mkdirSync(files,{recursive:true,mode:0o700});
 const signingKey=randomBytes(32);
 const categories=['Tecnología','Negocios','Idiomas','Agricultura','Oficios','Otras competencias'];
@@ -102,17 +103,7 @@ function publicMedia(req,res,ctx,id){
  if(!Number.isSafeInteger(until)||until<Date.now()||u.searchParams.get('firma')!==signature(ctx.course.id,id,ctx.actor,until))error(403,'Enlace caducado. Abre la vista previa de nuevo.');
  const asset=ctx.modules.flatMap(m=>m.lessons).flatMap(l=>[l.video,l.pdf]).find(a=>a?.id===id);
  if(!asset)error(404,'Archivo no encontrado.');
- const path=join(files,id),size=statSync(path).size;
- let start=0,end=size-1,status=200;
- const headers={'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Accept-Ranges':'bytes','Content-Type':asset.type,'Content-Disposition':asset.type==='application/pdf'?'attachment; filename="leccion.pdf"':'inline'};
- if(req.headers.range){
-  const match=/^bytes=(\d+)-(\d*)$/.exec(req.headers.range);
-  if(match){start=Number(match[1]);end=match[2]?Math.min(Number(match[2]),size-1):end;}
-  if(!match||start>end){res.writeHead(416,{'Content-Range':'bytes */'+size});return res.end();}
-  headers['Content-Range']=`bytes ${start}-${end}/${size}`;status=206;
- }
- res.writeHead(status,{...headers,'Content-Length':end-start+1});
- const stream=createReadStream(path,{start,end});stream.on('error',()=>res.destroy());res.on('close',()=>stream.destroy());stream.pipe(res);
+ return serveAsset(req,res,asset);
 }
 async function upload(req,res,ctx,parts,send){
  const {course:c,modules,base}=ctx;
@@ -144,13 +135,23 @@ async function upload(req,res,ctx,parts,send){
    const lesson=findLesson(modules,u.lesson),old=lesson[u.kind];
    transaction(()=>{bump(c);lesson[u.kind]={id:u.id,type:u.kind==='pdf'?'application/pdf':'video/mp4'};persist(ctx);
     audit(c,ctx.actor,'upload-'+u.kind);db.prepare('DELETE FROM studio_upload WHERE id=?').run(u.id);});
-   if(old)removeFile(old.id);
+   if(old&&!db.prepare('SELECT 1 FROM release_assets WHERE asset=?').get(old.id))removeFile(old.id);
   }
  }finally{closeSync(fd);}
  return send(res,204,'','text/plain');
 }
 function applyEdit(ctx,f,admin){
  const {course:c,modules,actor}=ctx,action=f.get('action');
+ if(['approve','changes','reject'].includes(action)){
+  if(!admin)error(403,'Solo administración puede emitir una decisión.');
+  if(c.status!=='review'||String(c.revision)!==f.get('revision'))stale();
+  if(action==='approve'&&(!c.owner||!users.prepare('SELECT 1 FROM instructors WHERE user_id=?').get(c.owner)))
+   error(422,'Asigna el curso a un instructor verificado antes de publicarlo.');
+  const feedback=field(f,'feedback',2000,action==='approve');
+  recordDecision(c,action,feedback);
+  db.prepare("UPDATE studio SET status='draft' WHERE course=?").run(c.id);
+  bump(c);audit(c,actor,action);return;
+ }
  if(action==='withdraw'){
   if(c.status!=='review'||String(c.revision)!==f.get('revision'))stale();
   db.prepare("UPDATE studio SET status='draft' WHERE course=?").run(c.id);
@@ -197,6 +198,10 @@ export async function studio(req,res,path,send,admin){
  const get=req.method==='GET';if(!get&&req.method!=='POST')error(405,'Método no permitido.');
  const page=(title,body,script=false)=>send(res,200,layout(title,`<h1>${e(title)}</h1>${body}${script?'<script src="/estudio-upload.js" defer></script>':''}`,admin?'/admin/cursos':'/espacios/instructor',admin,
   `<nav aria-label="Estudio"><a href="${admin?'/admin':'/cuenta'}">${admin?'Administración':'Mi cuenta'}</a><a href="${base}">Mis cursos</a></nav>`),'text/html; charset=utf-8',script?{'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"}:{});
+ if(admin&&path===base+'/revision'&&get){
+  const rows=db.prepare("SELECT c.id,c.title,s.price FROM courses c JOIN studio s ON s.course=c.id WHERE s.status='review' ORDER BY c.id").all();
+  return page('Cola de revisión','<a href="/admin/cuentas">Verificar instructores</a>'+ (rows.length?'<ul>'+rows.map(r=>`<li><a href="${base}/${r.id}">${e(r.title)}</a> · ${r.price} XAF</li>`).join('')+'</ul>':'<p>No hay cursos pendientes de revisión.</p>'));
+ }
  if(path===base){
   if(get){
    const rows=admin?db.prepare('SELECT c.id,title,status FROM courses c LEFT JOIN studio s ON s.course=c.id ORDER BY c.id DESC').all():
@@ -229,8 +234,16 @@ export async function studio(req,res,path,send,admin){
   return redirect(url);
  }
  const rev=c.revision;
- const common=`<p>${c.status==='review'?'En revisión':'Borrador'} · <a href="${url}/vista">Vista previa del alumno</a></p>`;
- if(c.status==='review')return page(c.title,common+form('withdraw',rev,'','Retirar envío para editar'));
+ const decisions=db.prepare('SELECT * FROM review_log WHERE course=? ORDER BY id DESC').all(c.id);
+ const labels={approve:'Publicación aprobada',changes:'Cambios solicitados',reject:'Publicación rechazada'};
+ const history=decisions.length?`<details><summary>Historial de revisión y precios</summary><ul>${decisions.map(d=>`<li>${d.created} UTC · ${labels[d.decision]} · ${d.price} XAF · ${e(d.feedback)}</li>`).join('')}</ul></details>`:'';
+ const versions=db.prepare('SELECT version,price FROM releases WHERE course=? ORDER BY version DESC').all(c.id);
+ const releases=versions.length?`<p>Versión publicada: ${versions[0].version} · ${versions[0].price} XAF · <a href="/espacios/estudiante/catalogo/curso-${c.id}-v${versions[0].version}">Abrir en el catálogo</a></p>`:'';
+ const common=history+releases+`<p>${c.status==='review'?'En revisión':'Borrador'} · <a href="${url}/vista">Vista previa del alumno</a></p>`;
+ if(c.status==='review')return page(c.title,common+`<p>Precio propuesto: ${c.price} XAF · Instructor: ${e(c.owner?users.prepare('SELECT username FROM students WHERE id=?').get(c.owner)?.username||'Sin asignar':'Sin asignar')}</p>`+
+  (admin?`<form method="post">${hidden('revision',rev)}${area('Comentarios para el instructor','feedback','',2000)}
+  <button name="action" value="approve">Aprobar contenido y precio y publicar</button>
+  <button name="action" value="changes">Solicitar cambios</button> <button name="action" value="reject">Rechazar</button></form>`:'')+form('withdraw',rev,'','Retirar envío para editar'));
  const details=input('Título','title',c.title)+area('Programa original o resumen','outline',c.outline)+
  `<label>Categoría<select name="category">${categories.map(k=>`<option ${k===c.category?'selected':''}>${k}</option>`).join('')}</select></label>
  <label>Precio propuesto (XAF)<input name="price" type="number" min="0" max="100000000" value="${c.price||0}" required></label>`;

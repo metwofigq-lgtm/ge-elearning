@@ -51,7 +51,10 @@ class StudioTest(unittest.TestCase):
                 auth=[]
                 for name in ['autor','otro']:
                     auth.append(login('/espacios/estudiante/registro',dict(usuario=name,clave='test-pass-123456')))
-                    req('/admin/cuentas',admin,dict(accion='conceder',usuario=name,rol='instructor',institucion=''),303)
+                    req('/cuenta',auth[-1],dict(accion='solicitar',experiencia='Experiencia docente'),303)
+                    listing=req('/admin/cuentas',admin)[1]
+                    uid=re.search(rb'name="solicitante" value="(\d+)"',listing).group(1).decode()
+                    req('/admin/cuentas',admin,dict(accion='verificar',solicitante=uid,comentario='Verificado'),303)
                 a,b=auth
                 path=req(base,a,dict(action='create',title='Curso QA'),303)[0].getheader('Location')
                 req(path,b,status=404)
@@ -100,6 +103,40 @@ class StudioTest(unittest.TestCase):
                 req(base+'/'+old_id,a,status=404)
                 req(old_studio,admin,dict(action='assign',revision='1',usuario='autor'),303)
                 self.assertIn(b'Programa original',req(base+'/'+old_id,a)[1])
+                admin_course=path.replace(base,'/admin/estudio')
+                catalog='/espacios/estudiante/catalogo'
+                series=catalog+'/curso-'+path.rsplit('/',1)[1]
+                def decide(action,feedback=''):
+                    req(admin_course,admin,dict(action=action,revision=revision(),feedback=feedback),303)
+                for decision in ['changes','reject']:
+                    edit('submit')
+                    req(path,a,dict(action='approve',revision=revision()),403)
+                    decide(decision,'Ajustar el contenido')
+                    self.assertIn(b'Ajustar el contenido',req(path,a)[1])
+                    self.assertNotIn(b'Curso QA',req(catalog)[1])
+                edit('details',title='Curso QA',outline='Programa',category='Tecnología',price='0')
+                edit('submit')
+                self.assertIn(b'Curso QA',req('/admin/estudio/revision',admin)[1])
+                decide('approve')
+                self.assertIn(b'Curso QA',req(catalog)[1])
+                req(series+'-v1/matricula',a,{},303)
+                lesson=series+'-v1/lecciones/'+lid
+                self.assertIn(b'Texto actualizado',req(lesson,a)[1])
+                self.assertIn(b'Respuesta correcta',req(lesson+'?respuesta=1',a)[1])
+                req(lesson+'/documento.pdf',b,status=403)
+                self.assertTrue(req(lesson+'/documento.pdf',a)[1].startswith(b'%PDF'))
+                edit('details',title='Curso nuevo',outline='Nuevo',category='Tecnología',price='3000')
+                self.assertNotIn(b'Curso nuevo',req(catalog)[1])
+                edit('submit')
+                decide('approve')
+                listing=req(catalog)[1]
+                self.assertIn(b'Curso nuevo',listing)
+                self.assertIn(b'3000 XAF',listing)
+                self.assertNotIn(b'Curso QA',listing)
+                req(series+'-v2/matricula',b,{},403)
+                self.assertIn(b'Curso QA',req(series+'-v1',a)[1])
+                req(lesson+'/video.mp4',a)
+                req(series+'-v1',b,status=303)
             finally:
                 app.terminate()
                 app.wait()
