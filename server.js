@@ -8,7 +8,7 @@ const login=readFileSync(new URL('./web/login.html',import.meta.url));
 const dashboard=readFileSync(new URL('./web/admin.html',import.meta.url));
 const credentialFile=process.env.GE_ADMIN_CREDENTIAL_FILE||join(process.env.HOME||'/nonexistent','.config/ge-elearning/admin.json');
 const sessions=new Map(),attempts=new Map(),duration=8*60*60*1000;
-const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; style-src 'unsafe-inline'; script-src 'none'; form-action 'self'; frame-ancestors 'none'"};
+const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'same-origin','Content-Security-Policy':"default-src 'self'; style-src 'unsafe-inline'; script-src 'none'; form-action 'self'; frame-ancestors 'none'"};
 function send(res,status,body,type='text/html; charset=utf-8',extra={}){res.writeHead(status,{...headers,'Content-Type':type,...extra});res.end(body);}
 function cred(){try{return JSON.parse(readFileSync(credentialFile,'utf8'));}catch{return null;}}
 function verify(pass,record){try{const a=scryptSync(pass,Buffer.from(record.salt,'hex'),64),b=Buffer.from(record.hash,'hex');return a.length===b.length&&timingSafeEqual(a,b);}catch{return false;}}
