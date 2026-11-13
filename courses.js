@@ -41,7 +41,10 @@ export async function courses(req,res,path,send) {
   const create=match[1]==='nuevo';
   const course=create ? {title:'',outline:''} : db.prepare('SELECT * FROM courses WHERE id=?').get(match[1]);
   if(!course)return send(res,404,page('<h1>Curso no encontrado</h1>'));
-  if(req.method==='GET')return send(res,200,editor(course));
+  if(req.method==='GET'){
+    const saved=new URL(req.url,'http://localhost').searchParams.get('guardado')==='1';
+    return send(res,200,editor(course,saved ? 'Borrador guardado.' : ''));
+  }
   if(req.method!=='POST')return send(res,405,'Método no permitido');
   const chunks=[];let size=0;
   for await(const chunk of req){
@@ -57,8 +60,12 @@ export async function courses(req,res,path,send) {
   if(create){
     id=db.prepare('INSERT INTO courses(title,outline) VALUES(?,?)').run(title,outline).lastInsertRowid;
   }else{
+    const latest=db.prepare('SELECT title,outline FROM courses WHERE id=?').get(id);
+    if(latest && latest.title===title && latest.outline===outline){
+      return send(res,303,'','text/plain',{Location:base+'/'+id+'?guardado=1'});
+    }
     const updated=db.prepare('UPDATE courses SET title=?,outline=?,revision=revision+1 WHERE id=? AND revision=?').run(title,outline,id,revision);
     if(!updated.changes)return send(res,409,editor({...course,title,outline,revision},'Otra sesión ha guardado cambios. Copia tu texto y vuelve a abrir el curso antes de continuar.'));
   }
-  return send(res,303,'','text/plain',{Location:base+'/'+id});
+  return send(res,303,'','text/plain',{Location:base+'/'+id+'?guardado=1'});
 }
