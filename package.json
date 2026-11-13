@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js"
+    "test": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
+    "check": "node scripts/check.mjs && npm test"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
   }
 }
