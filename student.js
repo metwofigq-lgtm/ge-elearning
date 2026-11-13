@@ -139,12 +139,14 @@ export async function student(req,res,path,send){
   const active=enrolled(course);
   return render(course.title,`<p>${course.description}</p><small>${course.price?course.price+' XAF':'Gratuito'} ${course.version?'· Versión '+course.version:''} · ${course.lessons.length} lecciones</small>
    <ol>${course.lessons.map(l=>`<li>${active?'<a href="'+lessonUrl(course,l)+'">'+l.title+'</a>':l.title}</li>`).join('')}</ol>`+
-   (active?progressCard(course):previous?progressCard(previous):course.price?'<p>Compra pendiente de habilitación.</p>':id?button(link+'/matricula','Matricularme gratis'):`<a class="action" href="${base}/acceso?curso=${course.id}">Acceder para matricularme</a>`));
+   (active?progressCard(course):previous?progressCard(previous):course.price?(id?`<form method="post" action="/cuenta/pedidos"><input type="hidden" name="action" value="order"><input type="hidden" name="course" value="${course.id}"><button>Crear pedido de prueba · ${course.price} XAF</button></form>`:`<a href="${base}/acceso?curso=${course.id}">Acceder para comprar</a>`):id?button(link+'/matricula','Matricularme gratis'):`<a class="action" href="${base}/acceso?curso=${course.id}">Acceder para matricularme</a>`));
  }
  if(!id)return redirect(base+'/acceso?curso='+course.id);
  if(!get&&path===link+'/matricula'){
   if(previous)return redirect(courseUrl(previous));
-  if(course.price)return render('Curso de pago','<p>Compra pendiente de habilitación.</p>',403);
+  if(course.series&&db.prepare("SELECT 1 FROM orders WHERE student=? AND series=? AND state='pending'").get(id,course.series))
+   return render('Pedido pendiente','<p>Completa o cancela tu pedido antes de matricularte en otra versión.</p><a href="/cuenta/pedidos">Mis pedidos</a>',409);
+  if(course.price)return render('Curso de pago','<p>Crea el pedido desde la ficha del curso.</p>',403);
   db.prepare('INSERT OR IGNORE INTO enrollment VALUES(?,?)').run(id,course.id);
   return redirect(link);
  }

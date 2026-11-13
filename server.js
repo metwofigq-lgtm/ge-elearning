@@ -1,3 +1,4 @@
+import { commerce } from './commerce.js';
 import { studio } from './studio.js';
 import { accounts } from './accounts.js';
 import { student } from './student.js';
@@ -27,6 +28,11 @@ function trustedForm(req){
 }
 http.createServer(async(req,res)=>{
  const path=new URL(req.url||'/', 'http://localhost').pathname;
+ if(['/admin/ventas','/cuenta/pedidos','/cuenta/ingresos','/pagos/confirmacion'].includes(path)){
+  if(path==='/admin/ventas'&&!session(req))return send(res,302,'','text/plain',{Location:'/login'});
+  if(req.method==='POST'&&path!=='/pagos/confirmacion'&&!trustedForm(req))return send(res,403,'Solicitud no permitida','text/plain');
+  try{return await commerce(req,res,path,send);}catch(error){if(!error.status)console.error('Commerce request failed',error.code);return send(res,error.status||500,error.status?error.message:'Error al procesar la operación.','text/plain; charset=utf-8');}
+ }
  if(req.method==='GET'&&path==='/estilos.css')return send(res,200,stylesheet,'text/css; charset=utf-8');
  if(path==='/estudio-upload.js'&&req.method==='GET')return send(res,200,uploadScript,'text/javascript; charset=utf-8');
  if(/^\/(admin|cuenta\/instructor)\/estudio(?:\/|$)/.test(path)){

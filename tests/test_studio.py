@@ -1,5 +1,7 @@
 """Exercise the same HTTP routes used by instructor and admin browsers."""
 import hashlib
+import hmac
+import uuid
 import http.client
 import json
 import os
@@ -26,13 +28,13 @@ class StudioTest(unittest.TestCase):
             cred.write_text(json.dumps(dict(username='qa', salt='00', hash=hashlib.scrypt(
                 b'qa', salt=bytes(1), n=16384, r=8, p=1).hex())))
             app = subprocess.Popen(['node','server.js'], cwd=root, env=dict(os.environ,PORT=str(port),
-                GE_ADMIN_CREDENTIAL_FILE=str(cred), GE_COURSE_DIR=d))
+                GE_ADMIN_CREDENTIAL_FILE=str(cred), GE_COURSE_DIR=d, GE_PAYMENT_WEBHOOK_SECRET='s'*32))
             try:
-                def req(path, cookie='', data=None, status=200):
+                def req(path, cookie='', data=None, status=200, headers=None):
                     conn=http.client.HTTPConnection('127.0.0.1',port)
                     body=data if isinstance(data,bytes) else urlencode(data or {})
                     conn.request('GET' if data is None else 'POST',path,body,{'Cookie':cookie,
-                        'Origin':'https://edu.senosl.com','Content-Type':'application/x-www-form-urlencoded'})
+                        'Origin':'https://edu.senosl.com','Content-Type':'application/x-www-form-urlencoded',**(headers or {})})
                     r=conn.getresponse()
                     result=r.read()
                     conn.close()
@@ -137,6 +139,38 @@ class StudioTest(unittest.TestCase):
                 self.assertIn(b'Curso QA',req(series+'-v1',a)[1])
                 req(lesson+'/video.mp4',a)
                 req(series+'-v1',b,status=303)
+                orders='/cuenta/pedidos'
+                sales='/admin/ventas'
+                income='/cuenta/ingresos'
+                sku=series.split('/')[-1]+'-v2'
+                def buy():
+                    req(orders,b,dict(action='order',course=sku),303)
+                    return re.search(rb'Pedido ([a-f0-9-]{36})',req(orders,b)[1]).group(1).decode()
+                oid=buy()
+                self.assertEqual(oid,buy())
+                pay=dict(action='capture',id=oid,amount='3000',tax='100',fee='20',reference='QA-1')
+                req(orders,b,pay,403)
+                req(sales,admin,{**pay,'amount':'1'},422)
+                req(income,a,dict(action='request',id=str(uuid.uuid4()),amount=1),422)
+                hook=dict(**pay,currency='XAF')
+                req('/pagos/confirmacion',data=hook,status=403)
+                sig=hmac.new(b's'*32,urlencode(hook).encode(),hashlib.sha256).hexdigest()
+                for _ in range(2):
+                    req('/pagos/confirmacion',data=hook,headers={'x-ge-signature':sig})
+                req(series+'-v2/lecciones/'+lid,b)
+                req(sales,admin,dict(action='release',id=oid),303)
+                self.assertIn(b'Saldo disponible: 2100 XAF',req(income,a)[1])
+                payout=dict(action='request',id=str(uuid.uuid4()),amount=100)
+                for _ in range(2): req(income,a,payout,303)
+                req(sales,admin,dict(action='disburse',id=payout['id'],reference='PAYOUT-1'),303)
+                req(series+'-v2/lecciones/'+lid+'/completar',b,{},303)
+                for _ in range(2): req(sales,admin,dict(action='refund',id=oid,reference='REFUND-1',fee=0),303)
+                req(series+'-v2/lecciones/'+lid,b,status=403)
+                req(series+'-v1/lecciones/'+lid,a)
+                with sqlite3.connect(Path(d)/'students.sqlite') as cx:
+                    self.assertEqual(cx.execute('select sum(gross),sum(instructor),sum(platform),sum(tax),sum(fee),sum(disbursed),count(*) from ledger').fetchone(),(0,0,-20,0,20,100,3))
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        cx.execute("update ledger set gross=0")
             finally:
                 app.terminate()
                 app.wait()

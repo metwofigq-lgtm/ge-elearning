@@ -33,7 +33,7 @@ export async function accounts(req,res,path,send){
  }
  const action=fields.get('accion');
  const page=(title,body,status=200)=>send(res,status,layout(title,`<h1>${title}</h1>${body}`,admin?path:'/espacios/estudiante',admin,
-  admin?'':'<nav aria-label="Cuenta"><a href="/cuenta">Mi perfil y espacios</a><a href="/espacios/estudiante/aprendizaje">Mi aprendizaje</a></nav>'));
+  admin?'':'<nav aria-label="Cuenta"><a href="/cuenta">Mi perfil y espacios</a><a href="/espacios/estudiante/aprendizaje">Mi aprendizaje</a><a href="/cuenta/pedidos">Mis pedidos</a></nav>'));
  const denied=()=>page('Acceso denegado','<p>Tu cuenta no tiene acceso a esta función.</p>',403);
  if(admin){
   if(post){
@@ -107,7 +107,7 @@ export async function accounts(req,res,path,send){
  }
  if(path==='/cuenta/instructor'){
   if(!db.prepare('SELECT 1 FROM instructors WHERE user_id=?').get(id))return denied();
-  return post?denied():page('Espacio de instructor','<p><a class="action" href="/cuenta/instructor/estudio">Abrir estudio de cursos</a></p>');
+  return post?denied():page('Espacio de instructor','<p><a class="action" href="/cuenta/instructor/estudio">Abrir estudio de cursos</a> · <a href="/cuenta/ingresos">Mis ingresos</a></p>');
  }
  const match=path.match(/^\/cuenta\/instituciones\/([1-9]\d*)$/);
  if(!match)return page('Página no encontrada','',404);
