@@ -1,3 +1,4 @@
+import { courses } from './courses.js';
 import http from 'node:http';
 import {readFileSync} from 'node:fs';
 import {randomBytes,scryptSync,timingSafeEqual} from 'node:crypto';
@@ -14,15 +15,23 @@ function cred(){try{return JSON.parse(readFileSync(credentialFile,'utf8'));}catc
 function verify(pass,record){try{const a=scryptSync(pass,Buffer.from(record.salt,'hex'),64),b=Buffer.from(record.hash,'hex');return a.length===b.length&&timingSafeEqual(a,b);}catch{return false;}}
 function session(req){const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('ge_session='))?.slice(11);const s=sessions.get(token);if(!s)return null;if(s.expires<Date.now()){sessions.delete(token);return null;}return token;}
 function cookie(value,age){return 'ge_session='+value+'; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age='+age;}
+function trustedForm(req){
+  const origin=req.headers.origin;const referer=req.headers.referer;const allowed='https://edu.senosl.com';
+  return origin ? origin===allowed : Boolean(referer?.startsWith(allowed+'/'));
+}
 http.createServer(async(req,res)=>{
  const path=new URL(req.url||'/', 'http://localhost').pathname;
+ if(path==='/admin/cursos'||path.startsWith('/admin/cursos/')){
+  if(!session(req))return send(res,302,'','text/plain',{Location:'/login'});
+  if(req.method==='POST'&&!trustedForm(req))return send(res,403,'Forbidden','text/plain');
+  try{return await courses(req,res,path,send);}catch(error){console.error('Course request failed',error.code);return send(res,500,'No se pudo abrir el curso.');}
+ }
  if(req.method==='GET'&&path==='/health')return send(res,200,JSON.stringify({status:'ok',service:'ge-elearning',mode:'staging'}),'application/json');
  if(req.method==='GET'&&path==='/')return send(res,200,landing);
  if(req.method==='GET'&&path==='/admin')return session(req)?send(res,200,dashboard):send(res,302,'','text/plain',{Location:'/login'});
  if(req.method==='GET'&&path==='/login')return session(req)?send(res,302,'','text/plain',{Location:'/admin'}):send(res,200,req.url?.includes('error=1')?Buffer.from(login.toString().replace('id="login-error" role="alert" style="display:none;','id="login-error" role="alert" style="display:block;')):login);
  if(req.method==='POST'&&(path==='/login'||path==='/logout')){
-  const origin=req.headers.origin;const referer=req.headers.referer;const allowed='https://edu.senosl.com';
-  if(origin ? origin!==allowed : (referer ? !referer.startsWith(allowed+'/') : true))return send(res,403,'Forbidden','text/plain');
+  if(!trustedForm(req))return send(res,403,'Forbidden','text/plain');
   if(path==='/logout'){const token=session(req);if(token)sessions.delete(token);return send(res,303,'','text/plain',{Location:'/login','Set-Cookie':cookie('',0)});}
   const ip=req.socket.remoteAddress||'unknown',now=Date.now(),state=attempts.get(ip)||{count:0,until:0};
   if(state.until>now)return send(res,429,'Too many attempts','text/plain');
