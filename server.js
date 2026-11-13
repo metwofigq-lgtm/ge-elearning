@@ -1,3 +1,4 @@
+import { localizedRequest, switchLanguage, translateResponse, locale } from './i18n.js';
 import { commerce } from './commerce.js';
 import { studio } from './studio.js';
 import { accounts } from './accounts.js';
@@ -17,7 +18,7 @@ const stylesheet=readFileSync(new URL('./web/estilos.css',import.meta.url));
 const credentialFile=process.env.GE_ADMIN_CREDENTIAL_FILE||join(process.env.HOME||'/nonexistent','.config/ge-elearning/admin.json');
 const sessions=new Map(),attempts=new Map(),duration=8*60*60*1000;
 const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'same-origin','Content-Security-Policy':"default-src 'self'; style-src 'self'; script-src 'none'; form-action 'self'; frame-ancestors 'none'"};
-function send(res,status,body,type='text/html; charset=utf-8',extra={}){res.writeHead(status,{...headers,'Content-Type':type,...extra});res.end(body);}
+function send(res,status,body,type='text/html; charset=utf-8',extra={}){res.writeHead(status,{...headers,'Content-Type':type,'Content-Language':locale(),Vary:'Cookie, Accept-Language',...extra});res.end(translateResponse(body,type));}
 function cred(){try{return JSON.parse(readFileSync(credentialFile,'utf8'));}catch{return null;}}
 function verify(pass,record){try{const a=scryptSync(pass,Buffer.from(record.salt,'hex'),64),b=Buffer.from(record.hash,'hex');return a.length===b.length&&timingSafeEqual(a,b);}catch{return false;}}
 function session(req){const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('ge_session='))?.slice(11);const s=sessions.get(token);if(!s)return null;if(s.expires<Date.now()){sessions.delete(token);return null;}return token;}
@@ -26,8 +27,10 @@ function trustedForm(req){
   const origin=req.headers.origin;const referer=req.headers.referer;const allowed='https://edu.senosl.com';
   return origin ? origin===allowed : Boolean(referer?.startsWith(allowed+'/'));
 }
-http.createServer(async(req,res)=>{
+http.createServer(localizedRequest(async(req,res)=>{
  const path=new URL(req.url||'/', 'http://localhost').pathname;
+ const lang=path.match(/^\/idioma\/(es|en|fr)$/);
+ if(lang&&req.method==='GET')return switchLanguage(req,res,lang[1]);
  if(['/admin/ventas','/cuenta/pedidos','/cuenta/ingresos','/pagos/confirmacion'].includes(path)){
   if(path==='/admin/ventas'&&!session(req))return send(res,302,'','text/plain',{Location:'/login'});
   if(req.method==='POST'&&path!=='/pagos/confirmacion'&&!trustedForm(req))return send(res,403,'Solicitud no permitida','text/plain');
@@ -78,4 +81,4 @@ http.createServer(async(req,res)=>{
   return send(res,303,'','text/plain',{Location:'/admin','Set-Cookie':cookie(token,duration/1000)});
  }
  return send(res,404,'Not found','text/plain');
-}).listen(port,host,()=>console.log('GE E-Learning staging listening on '+host+':'+port));
+})).listen(port,host,()=>console.log('GE E-Learning staging listening on '+host+':'+port));

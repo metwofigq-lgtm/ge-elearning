@@ -1,3 +1,4 @@
+import { languageMenu } from './i18n.js';
 const spaces = [
   { slug:'estudiante', name:'Estudiante', summary:'Cursos, aprendizaje y progreso.', sections:[
     ['catalogo','Catálogo','Aquí podrás explorar los cursos publicados.'],
@@ -24,7 +25,7 @@ export function layout(title, content, current, admin=false, localNav='') {
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>${title} · GE E-Learning</title><link rel="stylesheet" href="/estilos.css"></head>
     <body><a class="skip" href="#contenido">Ir al contenido</a><header><div class="bar"><a class="brand" href="${admin?'/admin':'/'}">GE E-Learning</a>
-    ${admin?'<form method="post" action="/logout"><button>Cerrar sesión</button></form>':'<a href="/login">Administración</a>'}</div></header>
+    ${admin?'<form method="post" action="/logout"><button>Cerrar sesión</button></form>':'<a href="/login">Administración</a>'}</div></header>${languageMenu()}
     <div class="navwrap">${nav(links,current,'Principal')}</div><main id="contenido" tabindex="-1">${localNav}${content}</main></body></html>`;
 }
 

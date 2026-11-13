@@ -1,3 +1,4 @@
+import { translations, localizedContent, translationForm, saveTranslation } from './content-locales.js';
 import { recordDecision } from './releases.js';
 import { randomUUID, randomBytes, createHmac } from 'node:crypto';
 import { mkdirSync, openSync, closeSync, writeSync, fstatSync, unlinkSync } from 'node:fs';
@@ -160,6 +161,7 @@ function applyEdit(ctx,f,admin){
   const mod=modules.find(m=>m.id===f.get('module'));
   const lesson=mod?.lessons.find(l=>l.id===f.get('lesson'));
   switch(action){
+   case 'translate':saveTranslation(c,modules,f);break;
    case 'details':{
     const title=field(f,'title',160),outline=field(f,'outline',12000,true),category=f.get('category'),price=Number(f.get('price'));
     if(!categories.includes(category)||!f.get('price')||!Number.isSafeInteger(price)||price<0||price>100000000)bad();
@@ -196,7 +198,7 @@ export async function studio(req,res,path,send,admin){
  const actor=admin?'admin':'instructor-'+user;
  const redirect=url=>send(res,303,'','text/plain',{Location:url});
  const get=req.method==='GET';if(!get&&req.method!=='POST')error(405,'Método no permitido.');
- const page=(title,body,script=false)=>send(res,200,layout(title,`<h1>${e(title)}</h1>${body}${script?'<script src="/estudio-upload.js" defer></script>':''}`,admin?'/admin/cursos':'/espacios/instructor',admin,
+ const page=(title,body,script=false)=>send(res,200,layout(title,`<h1>${title}</h1>${body}${script?'<script src="/estudio-upload.js" defer></script>':''}`,admin?'/admin/cursos':'/espacios/instructor',admin,
   `<nav aria-label="Estudio"><a href="${admin?'/admin':'/cuenta'}">${admin?'Administración':'Mi cuenta'}</a><a href="${base}">Mis cursos</a></nav>`),'text/html; charset=utf-8',script?{'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"}:{});
  if(admin&&path===base+'/revision'&&get){
   const rows=db.prepare("SELECT c.id,c.title,s.price FROM courses c JOIN studio s ON s.course=c.id WHERE s.status='review' ORDER BY c.id").all();
@@ -222,10 +224,18 @@ export async function studio(req,res,path,send,admin){
  const ctx={course:c,modules:JSON.parse(c.modules||'[]'),base,actor},url=base+'/'+c.id;
  if(get&&parts.length===3&&parts[1]==='media')return publicMedia(req,res,ctx,parts[2]);
  if(!get&&parts.length===4&&['subir','carga'].includes(parts[1]))return upload(req,res,ctx,parts,send);
- if(get&&parts.length===2&&parts[1]==='vista')return page('Vista previa · '+c.title,`<p><a href="${url}">Volver al curso</a></p><p class="lesson-text">${e(c.outline)}</p>`+preview(ctx,new URL(req.url,'http://localhost').searchParams));
+ if(get&&parts.length===2&&parts[1]==='vista'){
+  const local=localizedContent({title:c.title,description:c.outline,modules:ctx.modules,translations:translations(c.id)});
+  return page('Vista previa · '+e(local.title),`<p><a href="${url}">Volver al curso</a></p><p class="lesson-text">${e(local.description)}</p>`+preview({...ctx,modules:local.modules},new URL(req.url,'http://localhost').searchParams));
+ }
+ if(get&&parts.length===3&&parts[1]==='idioma'&&['es','en','fr'].includes(parts[2])){
+  if(c.status==='review')error(409,'Retira el envío antes de editar.');
+  const name={es:'Español',en:'English',fr:'Français'}[parts[2]];
+  return page('Traducciones del curso · '+name,'<p><a href="'+url+'">Volver al curso</a></p>'+translationForm(c,ctx.modules,parts[2]).replace('<form method="post">','<form method="post" action="'+url+'">'));
+ }
  if(parts.length!==1)error(404,'Página no encontrada.');
  if(!get){
-  const f=new URLSearchParams((await readBody(req,160000)).toString());
+  const f=new URLSearchParams((await readBody(req,900000)).toString());
   transaction(()=>{
    if(!admin && (meta.get(c.id)?.owner!==user || !users.prepare('SELECT 1 FROM instructors WHERE user_id=?').get(user)))error(403,'Acceso denegado.');
    db.prepare('INSERT OR IGNORE INTO studio(course) VALUES(?)').run(c.id);
@@ -240,14 +250,14 @@ export async function studio(req,res,path,send,admin){
  const versions=db.prepare('SELECT version,price FROM releases WHERE course=? ORDER BY version DESC').all(c.id);
  const releases=versions.length?`<p>Versión publicada: ${versions[0].version} · ${versions[0].price} XAF · <a href="/espacios/estudiante/catalogo/curso-${c.id}-v${versions[0].version}">Abrir en el catálogo</a></p>`:'';
  const common=history+releases+`<p>${c.status==='review'?'En revisión':'Borrador'} · <a href="${url}/vista">Vista previa del alumno</a></p>`;
- if(c.status==='review')return page(c.title,common+`<p>Precio propuesto: ${c.price} XAF · Instructor: ${e(c.owner?users.prepare('SELECT username FROM students WHERE id=?').get(c.owner)?.username||'Sin asignar':'Sin asignar')}</p>`+
+ if(c.status==='review')return page(e(c.title),common+`<p>Precio propuesto: ${c.price} XAF · Instructor: ${e(c.owner?users.prepare('SELECT username FROM students WHERE id=?').get(c.owner)?.username||'Sin asignar':'Sin asignar')}</p>`+
   (admin?`<form method="post">${hidden('revision',rev)}${area('Comentarios para el instructor','feedback','',2000)}
   <button name="action" value="approve">Aprobar contenido y precio y publicar</button>
   <button name="action" value="changes">Solicitar cambios</button> <button name="action" value="reject">Rechazar</button></form>`:'')+form('withdraw',rev,'','Retirar envío para editar'));
  const details=input('Título','title',c.title)+area('Programa original o resumen','outline',c.outline)+
- `<label>Categoría<select name="category">${categories.map(k=>`<option ${k===c.category?'selected':''}>${k}</option>`).join('')}</select></label>
+ `<label>Categoría<select name="category">${categories.map(k=>`<option ${k===c.category?'selected':''} value="${k}">${k}</option>`).join('')}</select></label>
  <label>Precio propuesto (XAF)<input name="price" type="number" min="0" max="100000000" value="${c.price||0}" required></label>`;
- return page(c.title,common+form('details',rev,details,'Guardar datos del curso')+
+ return page(e(c.title),common+`<section><h2>Traducciones del curso</h2><nav><a href="${url}/idioma/es">Español</a><a href="${url}/idioma/en">English</a><a href="${url}/idioma/fr">Français</a></nav></section>`+form('details',rev,details,'Guardar datos del curso')+
  (admin?form('assign',rev,input('Usuario instructor','usuario',c.owner?users.prepare('SELECT username FROM students WHERE id=?').get(c.owner)?.username||'':'',40),'Asignar curso'):'')+
  ctx.modules.map(m=>editModule(ctx,m)).join('')+form('module-add',rev,input('Nuevo módulo','title'),'Añadir módulo')+
  form('submit',rev,'','Enviar a revisión'),true);

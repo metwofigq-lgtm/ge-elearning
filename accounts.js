@@ -1,3 +1,4 @@
+import { escapeData as escape } from './i18n.js';
 import { db, identity } from './student.js';
 import { layout } from './layout.js';
 
@@ -12,9 +13,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS profiles(
  PRIMARY KEY(institution_id,user_id,role));`);
 
 const roles=new Map([['director','Dirección'],['coordinador','Coordinación académica'],['docente','Docente'],['finanzas','Finanzas'],['estudiante','Estudiante']]);
-function escape(value){
- return String(value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-}
+
 function form(action,fields,submit){
  return `<form method="post"><input type="hidden" name="accion" value="${action}">${fields}<button>${submit}</button></form>`;
 }

@@ -8,3 +8,4 @@ section,.card,main form{margin:1rem 0;padding:clamp(1rem,3vw,1.6rem);border:1px 
 @media(max-width:32rem){.navwrap nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0}.navwrap nav a{justify-content:center}.cards{gap:.65rem}}
 video{display:block;max-width:100%;height:auto;background:#112f5c}progress{max-width:100%;accent-color:var(--link)}
 .lesson-text{white-space:pre-wrap;overflow-wrap:anywhere}main details{margin:1rem 0}main summary{cursor:pointer;padding:.6rem}main input[type=radio]{width:auto;margin-right:.6rem}main select{max-width:100%;font:inherit}main output{overflow-wrap:anywhere}
+.language-menu{justify-content:flex-end;font-size:.9rem}.language-menu [aria-current]{font-weight:700;text-decoration:underline}

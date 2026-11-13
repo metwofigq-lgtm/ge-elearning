@@ -1,3 +1,4 @@
+import { translations, localizedContent } from './content-locales.js';
 import { db, escape } from './courses.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS releases(
@@ -14,7 +15,7 @@ export function recordDecision(course,decision,feedback) {
  if(decision!=='approve')return;
  const modules=JSON.parse(course.modules);
  const version=db.prepare('SELECT COALESCE(MAX(version),0)+1 AS n FROM releases WHERE course=?').get(course.id).n;
- const snapshot={title:course.title,description:course.outline,category:course.category,modules,owner:course.owner};
+ const snapshot={title:course.title,description:course.outline,category:course.category,modules,translations:translations(course.id),owner:course.owner};
  db.prepare('INSERT INTO releases(course,version,price,snapshot) VALUES(?,?,?,?)')
    .run(course.id,version,course.price,JSON.stringify(snapshot));
  const retain=db.prepare('INSERT OR IGNORE INTO release_assets VALUES(?)');
@@ -23,9 +24,9 @@ export function recordDecision(course,decision,feedback) {
 
 export function releasedCourses(){
  return db.prepare('SELECT * FROM releases ORDER BY course,version DESC').all().map(row=>{
-  const snapshot=JSON.parse(row.snapshot);
+  const snapshot=localizedContent(JSON.parse(row.snapshot));
   return {id:'curso-'+row.course+'-v'+row.version,series:row.course,version:row.version,price:row.price,
-   title:escape(snapshot.title),category:escape(snapshot.category),description:escape(snapshot.description),
+   searchText:[snapshot.title,snapshot.category,snapshot.description].join(' '),title:escape(snapshot.title),category:snapshot.category,description:escape(snapshot.description),
    lessons:snapshot.modules.flatMap(m=>m.lessons.map(l=>({...l,title:escape(l.title),text:escape(l.body),
     module:escape(m.title)})))};
  });

@@ -1,3 +1,4 @@
+import { t, locale } from './i18n.js';
 import { releasedCourses } from './releases.js';
 import { escape } from './courses.js';
 import { serveAsset } from './assets.js';
@@ -30,7 +31,7 @@ const pilot=[{
   {id:'registrar',title:'Registrar una incidencia',video:true,text:'Registra el equipo afectado, el síntoma observado y la hora de inicio. Por ejemplo, «Recepción, impresora 2. El trabajo sigue en la cola desde las 10:15». Si se desconoce la hora, indícalo.',exercise:'Redacta un registro con esos tres datos para un ordenador que ha perdido la conexión.'},
   {id:'entregar',title:'Entregar el caso',text:'Al pasar el caso a otra persona, incluye las comprobaciones realizadas y el resultado de cada una. Identifica qué queda pendiente. Así tu compañero podrá retomar el trabajo desde el último paso comprobado.',exercise:'Añade dos líneas a tu registro: una comprobación que ya hiciste y una pregunta que sigue abierta.'}
  ]}];
-const video=readFileSync(new URL('./media/incidencia.mp4',import.meta.url));
+const pilotVideos=Object.fromEntries(['es','en','fr'].map(code=>[code,readFileSync(new URL('./media/incidencia'+(code==='es'?'':'-'+code)+'.mp4',import.meta.url))]));
 const tabs=[[base,'Resumen'],[catalog,'Catálogo'],[base+'/aprendizaje','Mi aprendizaje'],[base+'/progreso','Mi progreso']];
 const digest=value=>createHash('sha256').update(value).digest('hex');
 const cookie=(token,age)=>'ge_student='+token+'; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age='+age;
@@ -118,7 +119,7 @@ export async function student(req,res,path,send){
   const q=(url.searchParams.get('q')||'').trim().toLocaleLowerCase('es');
   const seen=new Set();
   const latest=published.filter(c=>{if(!c.series)return true;if(seen.has(c.series))return false;seen.add(c.series);return true;});
-  const matches=latest.filter(c=>(c.title+' '+c.category+' '+c.description).toLocaleLowerCase('es').includes(q));
+  const matches=latest.filter(c=>((c.searchText||'')+' '+c.title+' '+c.category+' '+c.description+' '+t(c.title)+' '+t(c.category)+' '+t(c.description)).toLocaleLowerCase().includes(q));
   return render(path===catalog?'Catálogo de cursos':'Espacio de estudiante',
    (path===catalog?`<form action="${catalog}"><label>Buscar por tema o curso<input type="search" name="q"></label><button>Buscar</button></form>`:'')+
    (matches.map(c=>`<section><small>${c.category} · ${c.price?c.price+' XAF':'Gratuito'}</small><h2><a href="${courseUrl(c)}">${c.title}</a></h2><p>${c.description}</p><p>${c.lessons.length} lecciones</p></section>`).join('')||`<p>No hay cursos con esa búsqueda. <a href="${catalog}">Ver todos</a></p>`));
@@ -159,6 +160,7 @@ export async function student(req,res,path,send){
   if(lesson.pdf&&path===player+'/documento.pdf')return serveAsset(req,res,lesson.pdf);
  }
  if(get&&lesson.video&&path===player+'/video.mp4'){
+  const video=pilotVideos[locale()];
   const range=req.headers.range;
   if(!range)return send(res,200,video,'video/mp4',{'Accept-Ranges':'bytes'});
   const match=/^bytes=(\d+)-(\d*)$/.exec(range);

@@ -1,3 +1,9 @@
+const uploadMessages={
+ en:['Select a file up to 100 MB.','Could not save the file. '],
+ fr:['Sélectionnez un fichier de 100 Mo maximum.','Impossible d’enregistrer le fichier. '],
+ es:['Selecciona un archivo de hasta 100 MB.','No se pudo guardar el archivo. ']
+};
+const messages=uploadMessages[document.documentElement.lang]||uploadMessages.es;
 for (const form of document.querySelectorAll('form[data-upload]')) {
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -5,7 +11,7 @@ for (const form of document.querySelectorAll('form[data-upload]')) {
     const status = form.querySelector('output');
     const button = form.querySelector('button');
     if (!file || !file.size || file.size > 100 * 1024 * 1024) {
-      status.textContent = 'Selecciona un archivo de hasta 100 MB.';
+      status.textContent = messages[0];
       return;
     }
     button.disabled = true;
@@ -23,7 +29,7 @@ for (const form of document.querySelectorAll('form[data-upload]')) {
       }
       location.reload();
     } catch (error) {
-      status.textContent = 'No se pudo guardar el archivo. ' + error.message.slice(0,160);
+      status.textContent = messages[1] + error.message.slice(0,160);
       button.disabled = false;
     }
   });

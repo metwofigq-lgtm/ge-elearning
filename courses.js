@@ -1,3 +1,4 @@
+import { escapeData as escape } from './i18n.js';
 import { layout } from './layout.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
@@ -11,9 +12,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS courses (
   revision INTEGER NOT NULL DEFAULT 1
 )`);
 
-export function escape(value) {
-  return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
-}
+export { escape };
 
 function page(content) {
   return layout('Estudio de cursos',content,'/admin/cursos',true);
@@ -21,7 +20,7 @@ function page(content) {
 
 function editor(course, message='') {
   return page(`<h1>${course.id ? 'Editar borrador' : 'Crear nuevo curso'}</h1>
-  ${message ? '<p role="alert">'+escape(message)+'</p>' : ''}
+  ${message ? '<p role="alert">'+message+'</p>' : ''}
   ${course.id ? `<p><a class="action" href="/admin/estudio/${course.id}">Organizar módulos y lecciones</a></p>` : ''}
   <form method="post"><input type="hidden" name="revision" value="${escape(course.revision || 0)}">
   <label for="title">Título del curso</label><input id="title" name="title" maxlength="160" required value="${escape(course.title)}">

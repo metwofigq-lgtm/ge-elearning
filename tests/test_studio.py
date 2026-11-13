@@ -49,6 +49,14 @@ class StudioTest(unittest.TestCase):
                 def login(path,fields):
                     return req(path,data=fields,status=303)[0].getheader('Set-Cookie').split(';')[0]
                 admin=login('/login',dict(username='qa',password='qa'))
+                selected=req('/idioma/fr?volver=%2Flogin',status=303)[0]
+                self.assertEqual(selected.getheader('Location'),'/login')
+                fr=selected.getheader('Set-Cookie').split(';')[0]
+                self.assertIn('Connexion administrateur',req('/login',fr,headers={'Accept-Language':'en'})[1].decode())
+                self.assertIn('Administrator sign-in',req('/login',headers={'Accept-Language':'en-US'})[1].decode())
+                self.assertIn('Ventes et versements',req('/admin/ventas',admin+'; '+fr)[1].decode())
+                self.assertIn('Accounts and permissions',req('/admin/cuentas',admin+'; ge_lang=en')[1].decode())
+                self.assertEqual(req('/idioma/en?volver=https://example.org',status=303)[0].getheader('Location'),'/')
                 base='/cuenta/instructor/estudio'
                 auth=[]
                 for name in ['autor','otro']:
@@ -90,6 +98,11 @@ class StudioTest(unittest.TestCase):
                 for link in re.findall(r'(?:href|src)="([^"]+/media/[^"]+)"',view):
                     req(unescape(link),a)
                     req(unescape(link),b,status=404)
+                self.assertIn('Traductions du cours',req(path+'/idioma/fr',a+'; '+fr)[1].decode())
+                edit('translate',language='fr',**{'tr-title':'Cours QA','tr-'+lid+'-text':'Mon texte','tr-description':'Mi cuenta'})
+                french_preview=unescape(req(path+'/vista',a+'; '+fr)[1].decode())
+                self.assertIn('Mon texte',french_preview)
+                self.assertIn('Mi cuenta',french_preview)
                 edit('submit')
                 self.assertIn(b'En revisi',req(path,a)[1])
                 req(path,a,dict(revision=revision(),action='module-add',title='X'),409)
@@ -121,6 +134,7 @@ class StudioTest(unittest.TestCase):
                 self.assertIn(b'Curso QA',req('/admin/estudio/revision',admin)[1])
                 decide('approve')
                 self.assertIn(b'Curso QA',req(catalog)[1])
+                self.assertIn('Cours QA',req(catalog+'?q=Cours',fr)[1].decode())
                 req(series+'-v1/matricula',a,{},303)
                 lesson=series+'-v1/lecciones/'+lid
                 self.assertIn(b'Texto actualizado',req(lesson,a)[1])
