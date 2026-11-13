@@ -80,7 +80,7 @@ export async function accounts(req,res,path,send){
  }
  if(path==='/cuenta/instructor'){
   if(!db.prepare('SELECT 1 FROM instructors WHERE user_id=?').get(id))return denied();
-  return post?denied():page('Espacio de instructor','<p>Tu cuenta tiene acceso como instructor independiente.</p>');
+  return post?denied():page('Espacio de instructor','<p><a class="action" href="/cuenta/instructor/estudio">Abrir estudio de cursos</a></p>');
  }
  const match=path.match(/^\/cuenta\/instituciones\/([1-9]\d*)$/);
  if(!match)return page('Página no encontrada','',404);

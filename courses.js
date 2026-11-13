@@ -5,13 +5,13 @@ import { join } from 'node:path';
 
 const directory = process.env.GE_COURSE_DIR || join(process.env.HOME, '.local/share/ge-elearning');
 mkdirSync(directory, { recursive: true, mode: 0o700 });
-const db = new DatabaseSync(join(directory, 'courses.sqlite'));
+export const db = new DatabaseSync(join(directory, 'courses.sqlite'));
 db.exec(`CREATE TABLE IF NOT EXISTS courses (
   id INTEGER PRIMARY KEY, title TEXT NOT NULL, outline TEXT NOT NULL,
   revision INTEGER NOT NULL DEFAULT 1
 )`);
 
-function escape(value) {
+export function escape(value) {
   return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
 }
 
@@ -22,6 +22,7 @@ function page(content) {
 function editor(course, message='') {
   return page(`<h1>${course.id ? 'Editar borrador' : 'Crear nuevo curso'}</h1>
   ${message ? '<p role="alert">'+escape(message)+'</p>' : ''}
+  ${course.id ? `<p><a class="action" href="/admin/estudio/${course.id}">Organizar módulos y lecciones</a></p>` : ''}
   <form method="post"><input type="hidden" name="revision" value="${escape(course.revision || 0)}">
   <label for="title">Título del curso</label><input id="title" name="title" maxlength="160" required value="${escape(course.title)}">
   <label for="outline">Programa del curso</label><small id="hint">Escribe los módulos y sus lecciones, uno por línea.</small>
@@ -33,7 +34,7 @@ export async function courses(req,res,path,send) {
   const base='/admin/cursos';
   if(path===base && req.method==='GET'){
     const rows=db.prepare('SELECT id,title FROM courses ORDER BY id DESC').all();
-    return send(res,200,page(`<h1>Estudio de cursos</h1><a class="action" href="${base}/nuevo">Crear nuevo curso</a><section><h2>Borradores (${rows.length})</h2>${rows.length ? '<ul>'+rows.map(row=>`<li><a href="${base}/${row.id}">${escape(row.title)}</a></li>`).join('')+'</ul>' : '<p>Todavía no hay borradores.</p>'}</section>`));
+    return send(res,200,page(`<h1>Estudio de cursos</h1><a class="action" href="${base}/nuevo">Crear nuevo curso</a><p><a href="/admin/estudio">Ver cursos y estado de revisión</a></p><section><h2>Cursos (${rows.length})</h2>${rows.length ? '<ul>'+rows.map(row=>`<li><a href="${base}/${row.id}">${escape(row.title)}</a></li>`).join('')+'</ul>' : '<p>Todavía no hay borradores.</p>'}</section>`));
   }
   const match=path.match(/^\/admin\/cursos\/(nuevo|[1-9]\d*)$/);
   if(!match)return send(res,404,page('<h1>Curso no encontrado</h1>'));
@@ -63,6 +64,7 @@ export async function courses(req,res,path,send) {
     if(latest && latest.title===title && latest.outline===outline){
       return send(res,303,'','text/plain',{Location:base+'/'+id+'?guardado=1'});
     }
+    if(db.prepare("SELECT 1 FROM studio WHERE course=? AND status='review'").get(id))return send(res,409,page('<h1>Curso en revisión</h1><p>Retira el envío en el estudio antes de editar.</p>'));
     const updated=db.prepare('UPDATE courses SET title=?,outline=?,revision=revision+1 WHERE id=? AND revision=?').run(title,outline,id,revision);
     if(!updated.changes)return send(res,409,editor({...course,title,outline,revision},'Otra sesión ha guardado cambios. Copia tu texto y vuelve a abrir el curso antes de continuar.'));
   }

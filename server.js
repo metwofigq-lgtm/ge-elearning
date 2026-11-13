@@ -1,3 +1,4 @@
+import { studio } from './studio.js';
 import { accounts } from './accounts.js';
 import { student } from './student.js';
 import { layout, home, workspace } from './layout.js';
@@ -10,6 +11,7 @@ const port=Number(process.env.PORT||4187),host='127.0.0.1';
 const landing=readFileSync(new URL('./web/index.html',import.meta.url));
 const login=readFileSync(new URL('./web/login.html',import.meta.url));
 const dashboard=readFileSync(new URL('./web/admin.html',import.meta.url));
+const uploadScript=readFileSync(new URL('./web/estudio-upload.js',import.meta.url));
 const stylesheet=readFileSync(new URL('./web/estilos.css',import.meta.url));
 const credentialFile=process.env.GE_ADMIN_CREDENTIAL_FILE||join(process.env.HOME||'/nonexistent','.config/ge-elearning/admin.json');
 const sessions=new Map(),attempts=new Map(),duration=8*60*60*1000;
@@ -26,6 +28,13 @@ function trustedForm(req){
 http.createServer(async(req,res)=>{
  const path=new URL(req.url||'/', 'http://localhost').pathname;
  if(req.method==='GET'&&path==='/estilos.css')return send(res,200,stylesheet,'text/css; charset=utf-8');
+ if(path==='/estudio-upload.js'&&req.method==='GET')return send(res,200,uploadScript,'text/javascript; charset=utf-8');
+ if(/^\/(admin|cuenta\/instructor)\/estudio(?:\/|$)/.test(path)){
+  const admin=path.startsWith('/admin/');
+  if(admin&&!session(req))return send(res,302,'','text/plain',{Location:'/login'});
+  if(req.method==='POST'&&!trustedForm(req))return send(res,403,'Solicitud no permitida','text/plain');
+  try{return await studio(req,res,path,send,admin);}catch(error){if(!error.status)console.error('Studio request',error.code||error.name);return send(res,error.status||500,error.status?error.message:'No se pudo abrir el estudio.','text/plain; charset=utf-8');}
+ }
  if(path==='/cuenta'||path.startsWith('/cuenta/')||path==='/admin/cuentas'){
   if(path==='/admin/cuentas'&&!session(req))return send(res,302,'','text/plain',{Location:'/login'});
   if(req.method==='POST'&&!trustedForm(req))return send(res,403,'Solicitud no permitida','text/plain');
