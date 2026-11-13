@@ -13,7 +13,7 @@ const spaces = [
     ['alumnado','Alumnado','Aquí podrás gestionar las matrículas de tu institución.']] }
 ];
 
-function nav(items, current, label) {
+export function nav(items, current, label) {
   return `<nav aria-label="${label}">${items.map(([url,name]) =>
     `<a href="${url}"${url===current?' aria-current="page"':''}>${name}</a>`).join('')}</nav>`;
 }

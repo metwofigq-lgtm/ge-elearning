@@ -1,3 +1,4 @@
+import { student } from './student.js';
 import { layout, home, workspace } from './layout.js';
 import { courses } from './courses.js';
 import http from 'node:http';
@@ -24,6 +25,10 @@ function trustedForm(req){
 http.createServer(async(req,res)=>{
  const path=new URL(req.url||'/', 'http://localhost').pathname;
  if(req.method==='GET'&&path==='/estilos.css')return send(res,200,stylesheet,'text/css; charset=utf-8');
+ if(path==='/espacios/estudiante'||path.startsWith('/espacios/estudiante/')){
+  if(req.method==='POST'&&!trustedForm(req))return send(res,403,'Solicitud no permitida','text/plain');
+  try{return await student(req,res,path,send);}catch(error){console.error('Student request failed',error.code);return send(res,500,'No se pudo abrir el espacio.');}
+ }
  if(req.method==='GET'&&path.startsWith('/espacios/')){
   const view=workspace(path);
   return view?send(res,200,view):send(res,404,layout('Página no encontrada','<h1>Página no encontrada</h1>',''));
